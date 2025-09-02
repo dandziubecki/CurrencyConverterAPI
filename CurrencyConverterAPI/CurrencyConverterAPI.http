@@ -1,0 +1,47 @@
+@CurrencyConverterAPI_HostAddress = https://localhost:7156
+@user_token = 
+@admin_token = 
+
+### Login as User
+# @name loginAsUser
+POST {{CurrencyConverterAPI_HostAddress}}/token
+Content-Type: application/json
+
+{
+  "username": "user",
+  "password": "password"
+}
+
+###
+
+### Login as Admin
+# @name loginAsAdmin
+POST {{CurrencyConverterAPI_HostAddress}}/token
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "password"
+}
+
+###
+
+### Get Latest Rates
+GET {{CurrencyConverterAPI_HostAddress}}/rates/latest?baseCurrency=EUR
+Accept: application/json
+Authorization: Bearer {{user_token}}
+
+### Convert Currency
+GET {{CurrencyConverterAPI_HostAddress}}/convert?from=USD&to=EUR&amount=100
+Accept: application/json
+Authorization: Bearer {{user_token}}
+
+### Convert Currency with excluded currency (should fail)
+GET {{CurrencyConverterAPI_HostAddress}}/convert?from=USD&to=TRY&amount=100
+Accept: application/json
+Authorization: Bearer {{user_token}}
+
+### Get Historical Rates
+GET {{CurrencyConverterAPI_HostAddress}}/rates/historical?baseCurrency=USD&startDate=2023-01-01&endDate=2023-01-31&page=1&pageSize=5
+Accept: application/json
+Authorization: Bearer {{admin_token}}

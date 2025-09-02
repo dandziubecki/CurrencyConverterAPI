@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+    <title>D:\Programming\open source\CurrencyConverterAPI\tests\CurrencyConverterAPI.Tests\Services\FrankfurterApiCurrencyConverterTests.cs</title>
+    <script type="text/javascript" src="../js/dotcover.sourceview.js"></script>
+    <link rel="stylesheet" type="text/css" href="../css/dotcover.report.css" />
+  </head>
+  <body>
+    <pre id="content" class="source-code">
+using System.Net;
+using System.Text.Json;
+using CurrencyConverterAPI.Models;
+using CurrencyConverterAPI.Services;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
+using WireMock.RequestBuilders;
+using WireMock.ResponseBuilders;
+using WireMock.Server;
+using Moq;
+using Xunit;
+
+namespace CurrencyConverterAPI.Tests.Services;
+
+public class FrankfurterApiCurrencyConverterTests : IClassFixture&lt;WireMockServerFixture&gt;
+{
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly Mock&lt;ILogger&lt;FrankfurterApiCurrencyConverter&gt;&gt; _mockLogger;
+    private readonly IMemoryCache _memoryCache;
+    private readonly FrankfurterApiCurrencyConverter _sut;
+    private readonly WireMockServer _wireMockServer;
+
+    public FrankfurterApiCurrencyConverterTests(WireMockServerFixture wireMockFixture)
+    {
+        _wireMockServer = wireMockFixture.Server;
+        _mockLogger = new Mock&lt;ILogger&lt;FrankfurterApiCurrencyConverter&gt;&gt;();
+        _memoryCache = new MemoryCache(new MemoryCacheOptions());
+
+        var httpClient = new HttpClient()
+        {
+            BaseAddress = new Uri(_wireMockServer.Url!)
+        };
+        
+        var mockHttpClientFactory = new Mock&lt;IHttpClientFactory&gt;();
+        mockHttpClientFactory.Setup(_ =&gt; _.CreateClient(&quot;Frankfurter&quot;)).Returns(httpClient);
+        _httpClientFactory = mockHttpClientFactory.Object;
+
+        _sut = new FrankfurterApiCurrencyConverter(_httpClientFactory, _mockLogger.Object, _memoryCache);
+    }
+
+    [Theory]
+    [InlineData(&quot;TRY&quot;, true)]
+    [InlineData(&quot;PLN&quot;, true)]
+    [InlineData(&quot;USD&quot;, false)]
+    [InlineData(&quot;eur&quot;, false)]
+    public void IsCurrencyExcluded_ShouldReturnCorrectValue(string currency, bool expected)
+    {
+        // Act
+        var result = _sut.IsCurrencyExcluded(currency);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public async Task ConvertCurrencyAsync_ShouldReturnConversionResponse_WhenApiCallIsSuccessful()
+    {
+        // Arrange
+        var from = &quot;USD&quot;;
+        var to = &quot;EUR&quot;;
+        var amount = 100m;
+        var expectedResponse = new FrankfurterLatestResponse(amount, from, DateOnly.FromDateTime(DateTime.Today), new Dictionary&lt;string, decimal&gt; { { to, 92.5m } });
+
+        _wireMockServer.Reset();
+        _wireMockServer
+            .Given(Request.Create().WithPath(&quot;/latest&quot;).WithParam(&quot;amount&quot;, amount.ToString()).WithParam(&quot;from&quot;, from).WithParam(&quot;to&quot;, to).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader(&quot;Content-Type&quot;, &quot;application/json&quot;)
+                .WithBody(JsonSerializer.Serialize(expectedResponse)));
+
+        // Act
+        var result = await _sut.ConvertCurrencyAsync(from, to, amount);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(amount, result.Amount);
+        Assert.Equal(from, result.Base);
+        Assert.Equal(92.5m, result.Rates[to]);
+    }
+
+    [Fact]
+    public async Task ConvertCurrencyAsync_ShouldReturnNull_WhenApiCallFails()
+    {
+        // Arrange
+        _wireMockServer.Reset();
+        _wireMockServer
+            .Given(Request.Create().WithPath(&quot;/latest&quot;).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode(500));
+
+        // Act
+        var result = await _sut.ConvertCurrencyAsync(&quot;USD&quot;, &quot;EUR&quot;, 100);
+
+        // Assert
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetLatestRatesAsync_ShouldReturnLatestRatesAndFilterExcludedCurrencies()
+    {
+        // Arrange
+        var baseCurrency = &quot;USD&quot;;
+        var rates = new Dictionary&lt;string, decimal&gt;
+        {
+            { &quot;EUR&quot;, 0.9m },
+            { &quot;GBP&quot;, 0.8m },
+            { &quot;TRY&quot;, 25.0m }, // excluded
+            { &quot;PLN&quot;, 4.0m }  // excluded
+        };
+        var frankfurterResponse = new FrankfurterLatestResponse(1, baseCurrency, DateOnly.FromDateTime(DateTime.Today), rates);
+
+        _wireMockServer.Reset();
+        _wireMockServer
+            .Given(Request.Create().WithPath(&quot;/latest&quot;).WithParam(&quot;from&quot;, baseCurrency).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader(&quot;Content-Type&quot;, &quot;application/json&quot;)
+                .WithBody(JsonSerializer.Serialize(frankfurterResponse)));
+
+        // Act
+        var result = await _sut.GetLatestRatesAsync(baseCurrency);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(baseCurrency, result.Base);
+        Assert.Equal(2, result.Rates.Count);
+        Assert.Contains(&quot;EUR&quot;, result.Rates.Keys);
+        Assert.Contains(&quot;GBP&quot;, result.Rates.Keys);
+        Assert.DoesNotContain(&quot;TRY&quot;, result.Rates.Keys);
+        Assert.DoesNotContain(&quot;PLN&quot;, result.Rates.Keys);
+    }
+
+    [Fact]
+    public async Task GetHistoricalRatesAsync_ShouldReturnPaginatedAndFilteredRates()
+    {
+        // Arrange
+        var baseCurrency = &quot;USD&quot;;
+        var startDate = new DateOnly(2023, 1, 1);
+        var endDate = new DateOnly(2023, 1, 5);
+        var rates = new Dictionary&lt;string, Dictionary&lt;string, decimal&gt;&gt;
+        {
+            [&quot;2023-01-01&quot;] = new() { { &quot;EUR&quot;, 0.91m }, { &quot;TRY&quot;, 25.1m } },
+            [&quot;2023-01-02&quot;] = new() { { &quot;EUR&quot;, 0.92m }, { &quot;PLN&quot;, 4.1m } },
+            [&quot;2023-01-03&quot;] = new() { { &quot;EUR&quot;, 0.93m }, { &quot;GBP&quot;, 0.81m } },
+            [&quot;2023-01-04&quot;] = new() { { &quot;EUR&quot;, 0.94m }, { &quot;THB&quot;, 34.1m } },
+            [&quot;2023-01-05&quot;] = new() { { &quot;EUR&quot;, 0.95m }, { &quot;MXN&quot;, 17.1m } },
+        };
+        var frankfurterResponse = new FrankfurterHistoricalResponse(1, baseCurrency, startDate, endDate, rates);
+
+        _wireMockServer.Reset();
+        _wireMockServer
+            .Given(Request.Create().WithPath($&quot;/{startDate:yyyy-MM-dd}..{endDate:yyyy-MM-dd}&quot;).WithParam(&quot;from&quot;, baseCurrency).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader(&quot;Content-Type&quot;, &quot;application/json&quot;)
+                .WithBody(JsonSerializer.Serialize(frankfurterResponse)));
+
+        // Act
+        var result = await _sut.GetHistoricalRatesAsync(baseCurrency, startDate, endDate, 2, 2);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(baseCurrency, result.Base);
+        Assert.Equal(5, result.TotalItems);
+        Assert.Equal(3, result.TotalPages);
+        Assert.Equal(2, result.Page);
+        Assert.Equal(2, result.PageSize);
+        Assert.Equal(2, result.Rates.Count);
+        Assert.True(result.Rates.ContainsKey(&quot;2023-01-03&quot;));
+        Assert.Equal(2, result.Rates[&quot;2023-01-03&quot;].Count);
+        Assert.DoesNotContain(&quot;TRY&quot;, result.Rates.SelectMany(r =&gt; r.Value.Keys));
+    }
+    
+    [Fact]
+    public async Task ConvertCurrencyAsync_ShouldUseCacheOnSecondCall()
+    {
+        // Arrange
+        var from = &quot;USD&quot;;
+        var to = &quot;EUR&quot;;
+        var amount = 100m;
+        var expectedResponse = new FrankfurterLatestResponse(amount, from, DateOnly.FromDateTime(DateTime.Today), new Dictionary&lt;string, decimal&gt; { { to, 92.5m } });
+
+        _wireMockServer.Reset();
+        _wireMockServer
+            .Given(Request.Create().WithPath(&quot;/latest&quot;).WithParam(&quot;amount&quot;, amount.ToString()).WithParam(&quot;from&quot;, from).WithParam(&quot;to&quot;, to).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader(&quot;Content-Type&quot;, &quot;application/json&quot;)
+                .WithBody(JsonSerializer.Serialize(expectedResponse)));
+
+        // Act
+        var result1 = await _sut.ConvertCurrencyAsync(from, to, amount);
+        var result2 = await _sut.ConvertCurrencyAsync(from, to, amount);
+
+        // Assert
+        Assert.NotNull(result1);
+        Assert.NotNull(result2);
+        Assert.Equal(result1.Rates[to], result2.Rates[to]);
+        
+        // Verify only one request was made (due to caching)
+        Assert.Single(_wireMockServer.LogEntries);
+    }
+}
+
+    </pre>
+    <script type="text/javascript">
+      highlightRanges([[23,5,23,87,1],[24,5,24,6,1],[25,9,25,50,1],[26,9,26,76,1],[27,9,27,66,1],[29,9,32,11,1],[34,9,34,68,1],[35,9,35,93,1],[36,9,36,59,1],[38,9,38,106,1],[39,5,39,6,1],[47,5,47,6,1],[49,9,49,56,1],[52,9,52,40,1],[53,5,53,6,1],[57,5,57,6,1],[59,9,59,26,1],[60,9,60,24,1],[61,9,61,27,1],[62,9,62,166,1],[64,9,64,33,1],[65,9,70,72,1],[73,9,73,72,1],[76,9,76,32,1],[77,9,77,45,1],[78,9,78,41,1],[79,9,79,47,1],[80,5,80,6,1],[84,5,84,6,1],[86,9,86,33,1],[87,9,90,39,1],[93,9,93,73,1],[96,9,96,29,1],[97,5,97,6,1],[101,5,101,6,1],[103,9,103,34,1],[104,9,110,11,1],[111,9,111,128,1],[113,9,113,33,1],[114,9,119,75,1],[122,9,122,67,1],[125,9,125,32,1],[126,9,126,49,1],[127,9,127,45,1],[128,9,128,51,1],[129,9,129,51,1],[130,9,130,57,1],[131,9,131,57,1],[132,5,132,6,1],[136,5,136,6,1],[138,9,138,34,1],[139,9,139,50,1],[140,9,140,48,1],[141,9,148,11,1],[149,9,149,113,1],[151,9,151,33,1],[152,9,157,75,1],[160,9,160,97,1],[163,9,163,32,1],[164,9,164,49,1],[165,9,165,44,1],[166,9,166,44,1],[167,9,167,38,1],[168,9,168,42,1],[169,9,169,45,1],[170,9,170,61,1],[171,9,171,59,1],[172,9,172,67,1],[172,67,172,79,1],[172,79,172,82,1],[173,5,173,6,1],[177,5,177,6,1],[179,9,179,26,1],[180,9,180,24,1],[181,9,181,27,1],[182,9,182,166,1],[184,9,184,33,1],[185,9,190,72,1],[193,9,193,73,1],[194,9,194,73,1],[197,9,197,33,1],[198,9,198,33,1],[199,9,199,60,1],[202,9,202,51,1],[203,5,203,6,1]]);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+    <title>D:\Programming\open source\CurrencyConverterAPI\tests\CurrencyConverterAPI.Tests\Services\HeaderBasedCurrencyConverterFactoryTests.cs</title>
+    <script type="text/javascript" src="../js/dotcover.sourceview.js"></script>
+    <link rel="stylesheet" type="text/css" href="../css/dotcover.report.css" />
+  </head>
+  <body>
+    <pre id="content" class="source-code">
+using System;
+using CurrencyConverterAPI.Services;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Moq;
+using Xunit;
+
+namespace CurrencyConverterAPI.Tests.Services;
+
+public class HeaderBasedCurrencyConverterFactoryTests
+{
+    private readonly Mock&lt;IHttpContextAccessor&gt; _mockHttpContextAccessor;
+    private readonly Mock&lt;ILogger&lt;HeaderBasedCurrencyConverterFactory&gt;&gt; _mockLogger;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly HeaderBasedCurrencyConverterFactory _sut;
+    private readonly Mock&lt;ICurrencyConverter&gt; _mockDefaultConverter;
+    private readonly Mock&lt;ICurrencyConverter&gt; _mockTestProviderConverter;
+
+    public HeaderBasedCurrencyConverterFactoryTests()
+    {
+        _mockHttpContextAccessor = new Mock&lt;IHttpContextAccessor&gt;();
+        _mockLogger = new Mock&lt;ILogger&lt;HeaderBasedCurrencyConverterFactory&gt;&gt;();
+
+        _mockDefaultConverter = new Mock&lt;ICurrencyConverter&gt;();
+        _mockDefaultConverter.Setup(c =&gt; c.ProviderName).Returns(&quot;FrankfurterApiCurrencyConverter&quot;);
+
+        _mockTestProviderConverter = new Mock&lt;ICurrencyConverter&gt;();
+        _mockTestProviderConverter.Setup(c =&gt; c.ProviderName).Returns(&quot;TestProvider&quot;);
+
+        var services = new ServiceCollection();
+        services.AddKeyedSingleton(&quot;FrankfurterApiCurrencyConverter&quot;, _mockDefaultConverter.Object);
+        services.AddKeyedSingleton(&quot;TestProvider&quot;, _mockTestProviderConverter.Object);
+        _serviceProvider = services.BuildServiceProvider();
+
+        _sut = new HeaderBasedCurrencyConverterFactory(
+            _mockHttpContextAccessor.Object,
+            _mockLogger.Object,
+            _serviceProvider);
+    }
+
+    [Fact]
+    public void ResolveService_ShouldReturnProviderFromHeader_WhenHeaderIsValid()
+    {
+        // Arrange
+        const string providerName = &quot;TestProvider&quot;;
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers[&quot;X-Currency-Provider&quot;] = providerName;
+        _mockHttpContextAccessor.Setup(x =&gt; x.HttpContext).Returns(httpContext);
+
+        // Act
+        var result = _sut.ResolveService();
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(providerName, result.ProviderName);
+    }
+
+    [Theory]
+    [InlineData(null)] // Header not present
+    [InlineData(&quot;&quot;)]   // Header present but empty
+    [InlineData(&quot; &quot;)]  // Header present but whitespace
+    public void ResolveService_ShouldReturnDefaultProvider_WhenHeaderIsMissingOrEmpty(string headerValue)
+    {
+        // Arrange
+        var httpContext = new DefaultHttpContext();
+        if (headerValue is not null)
+        {
+            httpContext.Request.Headers[&quot;X-Currency-Provider&quot;] = headerValue;
+        }
+        _mockHttpContextAccessor.Setup(x =&gt; x.HttpContext).Returns(httpContext);
+
+        // Act
+        var result = _sut.ResolveService();
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(&quot;FrankfurterApiCurrencyConverter&quot;, result.ProviderName);
+    }
+
+    [Fact]
+    public void ResolveService_ShouldReturnDefaultProvider_WhenProviderInHeaderIsUnsupported()
+    {
+        // Arrange
+        const string providerName = &quot;UnsupportedProvider&quot;;
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers[&quot;X-Currency-Provider&quot;] = providerName;
+        _mockHttpContextAccessor.Setup(x =&gt; x.HttpContext).Returns(httpContext);
+
+        // Act
+        var result = _sut.ResolveService();
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(&quot;FrankfurterApiCurrencyConverter&quot;, result.ProviderName);
+    }
+
+    [Fact]
+    public void ResolveService_ShouldReturnDefaultProvider_WhenHttpContextIsNull()
+    {
+        // Arrange
+        _mockHttpContextAccessor.Setup(x =&gt; x.HttpContext).Returns((HttpContext)null);
+
+        // Act
+        var result = _sut.ResolveService();
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(&quot;FrankfurterApiCurrencyConverter&quot;, result.ProviderName);
+    }
+}
+
+    </pre>
+    <script type="text/javascript">
+      highlightRanges([[20,5,20,54,1],[21,5,21,6,1],[22,9,22,69,1],[23,9,23,80,1],[25,9,25,64,1],[26,9,26,101,1],[28,9,28,69,1],[29,9,29,87,1],[31,9,31,48,1],[32,9,32,101,1],[33,9,33,87,1],[34,9,34,60,1],[36,9,39,31,1],[40,5,40,6,1],[44,5,44,6,1],[47,9,47,52,1],[48,9,48,75,1],[49,9,49,81,1],[52,9,52,44,1],[55,9,55,32,1],[56,9,56,57,1],[57,5,57,6,1],[64,5,64,6,1],[66,9,66,52,1],[67,9,67,37,1],[68,9,68,10,1],[69,13,69,78,1],[70,9,70,10,1],[71,9,71,81,1],[74,9,74,44,1],[77,9,77,32,1],[78,9,78,78,1],[79,5,79,6,1],[83,5,83,6,1],[86,9,86,52,1],[87,9,87,75,1],[88,9,88,81,1],[91,9,91,44,1],[94,9,94,32,1],[95,9,95,78,1],[96,5,96,6,1],[100,5,100,6,1],[102,9,102,87,1],[105,9,105,44,1],[108,9,108,32,1],[109,9,109,78,1],[110,5,110,6,1]]);
+    </script>
+  </body>
+</html>

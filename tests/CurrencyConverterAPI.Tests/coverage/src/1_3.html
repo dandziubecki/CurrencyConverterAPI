@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+    <title>D:\Programming\open source\CurrencyConverterAPI\CurrencyConverterAPI\CurrencyConverterApi.cs</title>
+    <script type="text/javascript" src="../js/dotcover.sourceview.js"></script>
+    <link rel="stylesheet" type="text/css" href="../css/dotcover.report.css" />
+  </head>
+  <body>
+    <pre id="content" class="source-code">
+using System.Security.Claims;
+using System.Text;
+using CurrencyConverterAPI.Models;
+using CurrencyConverterAPI.Services;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
+
+namespace CurrencyConverterAPI;
+
+public static class CurrencyConverterApi
+{
+    public static void AddApi(this WebApplication webApplication, IConfiguration appConfiguration)
+    {
+        const string defaultRateLimiterPolicy = &quot;fixed&quot;;
+
+        webApplication.MapGet(&quot;/rates/latest&quot;, async ([FromQuery] string baseCurrency,
+                IHeaderBasedCurrencyConverterFactory resolver) =&gt;
+            {
+                if (string.IsNullOrWhiteSpace(baseCurrency))
+                {
+                    return Results.BadRequest(&quot;Base currency cannot be empty.&quot;);
+                }
+
+                var currencyService = resolver.ResolveService();
+                var result = await currencyService.GetLatestRatesAsync(baseCurrency.ToUpper());
+                return result is not null
+                    ? Results.Ok(result)
+                    : Results.NotFound($&quot;Rates for base currency &#39;{baseCurrency}&#39; not found.&quot;);
+            })
+            .WithName(&quot;GetLatestRates&quot;)
+            .WithOpenApi()
+            .RequireAuthorization(&quot;User&quot;)
+            .RequireRateLimiting(defaultRateLimiterPolicy);
+
+        webApplication.MapGet(&quot;/convert&quot;, async ([FromQuery] string from, [FromQuery] string to,
+                [FromQuery] decimal amount,
+                IHeaderBasedCurrencyConverterFactory resolver) =&gt;
+            {
+                if (string.IsNullOrWhiteSpace(from) || string.IsNullOrWhiteSpace(to) || amount &lt;= 0)
+                {
+                    return Results.BadRequest(
+                        &quot;&#39;from&#39;, &#39;to&#39; and &#39;amount&#39; parameters are required and amount must be positive.&quot;);
+                }
+
+                var currencyService = resolver.ResolveService();
+                if (currencyService.IsCurrencyExcluded(from) || currencyService.IsCurrencyExcluded(to))
+                {
+                    return Results.BadRequest(&quot;Currency conversion involving TRY, PLN, THB, or MXN is not supported.&quot;);
+                }
+
+                var result = await currencyService.ConvertCurrencyAsync(from.ToUpper(), to.ToUpper(), amount);
+                return result is not null
+                    ? Results.Ok(result)
+                    : Results.NotFound(&quot;Could not perform currency conversion.&quot;);
+            })
+            .WithName(&quot;ConvertCurrency&quot;)
+            .WithOpenApi()
+            .RequireAuthorization(&quot;User&quot;)
+            .RequireRateLimiting(defaultRateLimiterPolicy);
+
+        webApplication.MapGet(&quot;/rates/historical&quot;, async (
+                [FromQuery] string baseCurrency,
+                [FromQuery] DateOnly startDate,
+                [FromQuery] DateOnly endDate,
+                [FromQuery] int page,
+                [FromQuery] int pageSize,
+                IHeaderBasedCurrencyConverterFactory resolver) =&gt;
+            {
+                if (string.IsNullOrWhiteSpace(baseCurrency) || startDate == default || endDate == default ||
+                    page &lt;= 0 || pageSize &lt;= 0)
+                {
+                    return Results.BadRequest(
+                        &quot;All parameters (baseCurrency, startDate, endDate, page, pageSize) are required and must be valid.&quot;);
+                }
+
+                if (startDate &gt; endDate)
+                {
+                    return Results.BadRequest(&quot;startDate cannot be after endDate.&quot;);
+                }
+
+                var currencyService = resolver.ResolveService();
+                var result =
+                    await currencyService.GetHistoricalRatesAsync(baseCurrency.ToUpper(), startDate, endDate, page,
+                        pageSize);
+                return result is not null
+                    ? Results.Ok(result)
+                    : Results.NotFound(&quot;Could not retrieve historical rates.&quot;);
+            })
+            .WithName(&quot;GetHistoricalRates&quot;)
+            .WithOpenApi()
+            .RequireAuthorization(&quot;AdminOnly&quot;)
+            .RequireRateLimiting(defaultRateLimiterPolicy);
+
+        webApplication.MapPost(&quot;/token&quot;, (UserLogin user) =&gt;
+        {
+            // In a real app, you&#39;d validate the user against a database.
+            if (user.Username == &quot;admin&quot; &amp;&amp; user.Password == &quot;password&quot;)
+            {
+                var claims = new[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, user.Username),
+                    new Claim(ClaimTypes.Role, &quot;Admin&quot;)
+                };
+                return Results.Ok(GenerateToken(claims));
+            }
+
+            if (user.Username == &quot;user&quot; &amp;&amp; user.Password == &quot;password&quot;)
+            {
+                var claims = new[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, user.Username),
+                    new Claim(ClaimTypes.Role, &quot;User&quot;)
+                };
+                return Results.Ok(GenerateToken(claims));
+            }
+
+            return Results.Unauthorized();
+
+            string GenerateToken(IEnumerable&lt;Claim&gt; claims)
+            {
+                var issuer = appConfiguration[&quot;Jwt:Issuer&quot;];
+                var audience = appConfiguration[&quot;Jwt:Audience&quot;];
+                var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(appConfiguration[&quot;Jwt:Key&quot;]!));
+                var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+                var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+                    issuer: issuer,
+                    audience: audience,
+                    claims: claims,
+                    expires: DateTime.Now.AddMinutes(30),
+                    signingCredentials: creds
+                );
+                return new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token);
+            }
+        }).AllowAnonymous();
+    }
+}
+    </pre>
+    <script type="text/javascript">
+      highlightRanges([[13,5,13,6,1],[16,9,18,13,1],[18,13,18,14,1],[18,14,19,17,1],[19,17,19,61,1],[19,61,20,17,1],[20,17,20,18,1],[20,18,21,21,1],[21,21,21,81,1],[21,81,24,17,1],[24,17,24,65,1],[24,65,25,17,1],[25,17,25,96,1],[25,96,26,17,1],[26,17,28,96,1],[28,96,29,13,1],[29,13,29,14,1],[29,14,33,60,1],[35,9,38,13,1],[38,13,38,14,1],[38,14,39,17,1],[39,17,39,101,1],[39,101,40,17,1],[40,17,40,18,1],[40,18,41,21,1],[41,21,42,107,1],[42,107,45,17,1],[45,17,45,65,1],[45,65,46,17,1],[46,17,46,104,1],[46,104,47,17,1],[47,17,47,18,1],[47,18,48,21,1],[48,21,48,120,1],[48,120,51,17,1],[51,17,51,111,1],[51,111,52,17,1],[52,17,54,82,1],[54,82,55,13,1],[55,13,55,14,1],[55,14,59,60,1],[61,9,68,13,1],[68,13,68,14,1],[68,14,69,17,1],[69,17,70,48,1],[70,48,71,17,1],[71,17,71,18,0],[71,18,72,21,1],[72,21,73,126,0],[73,126,76,17,1],[76,17,76,41,1],[76,41,77,17,1],[77,17,77,18,1],[77,18,78,21,1],[78,21,78,85,1],[78,85,81,17,1],[81,17,81,65,1],[81,65,82,17,1],[82,17,84,35,1],[84,35,85,17,1],[85,17,87,80,1],[87,80,88,13,1],[88,13,88,14,1],[88,14,92,60,1],[94,9,95,9,1],[95,9,95,10,1],[95,10,97,13,1],[97,13,97,73,1],[97,73,98,13,1],[98,13,98,14,1],[98,14,99,17,1],[99,17,103,19,1],[103,19,104,17,1],[104,17,104,58,1],[104,58,107,13,1],[107,13,107,72,1],[107,72,108,13,1],[108,13,108,14,1],[108,14,109,17,1],[109,17,113,19,1],[113,19,114,17,1],[114,17,114,58,1],[114,58,117,13,1],[117,13,117,43,1],[117,43,120,13,1],[120,13,120,14,1],[120,14,121,17,1],[121,17,121,61,1],[121,61,122,17,1],[122,17,122,65,1],[122,65,123,17,1],[123,17,123,106,1],[123,106,124,17,1],[124,17,124,88,1],[124,88,126,17,1],[126,17,132,19,1],[132,19,133,17,1],[133,17,133,104,1],[133,104,134,13,1],[134,13,134,14,1],[134,14,135,9,1],[135,9,135,10,1],[135,10,135,29,1],[136,5,136,6,1]]);
+    </script>
+  </body>
+</html>

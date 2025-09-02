@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+    <title>D:\Programming\open source\CurrencyConverterAPI\tests\CurrencyConverterAPI.Tests\CurrencyApiIntegrationTests.cs</title>
+    <script type="text/javascript" src="../js/dotcover.sourceview.js"></script>
+    <link rel="stylesheet" type="text/css" href="../css/dotcover.report.css" />
+  </head>
+  <body>
+    <pre id="content" class="source-code">
+using System.Net;
+using System.Net.Http.Headers;
+using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text;
+using CurrencyConverterAPI.Models;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
+using WireMock.RequestBuilders;
+using WireMock.ResponseBuilders;
+using Xunit;
+using System.IdentityModel.Tokens.Jwt;
+
+namespace CurrencyConverterAPI.Tests;
+
+public class CurrencyApiIntegrationTests : IClassFixture&lt;CustomWebApplicationFactory&gt;, IClassFixture&lt;WireMockServerFixture&gt;
+{
+    private readonly HttpClient _client;
+    private readonly CustomWebApplicationFactory _factory;
+    private readonly WireMockServerFixture _wireMockFixture;
+    private readonly JsonSerializerOptions _jsonSerializerOptions;
+
+    public CurrencyApiIntegrationTests(CustomWebApplicationFactory factory, WireMockServerFixture wireMockFixture)
+    {
+        _factory = factory;
+        _wireMockFixture = wireMockFixture;
+        _client = _factory.WithWireMockServer(_wireMockFixture.Server).CreateClient();
+        _jsonSerializerOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            Converters = { new DateOnlyJsonConverter() }
+        };
+
+        var token = GenerateAdminToken();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(&quot;Bearer&quot;, token);
+    }
+
+    private static string GenerateAdminToken()
+    {
+        var issuer = &quot;TestIssuer&quot;;
+        var audience = &quot;TestAudience&quot;;
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(&quot;MySuperSecretKeyForTestingEnvironment123!&quot;));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, &quot;test-admin&quot;),
+            new Claim(ClaimTypes.Role, &quot;Admin&quot;)
+        };
+
+        var token = new JwtSecurityToken(
+            issuer: issuer,
+            audience: audience,
+            claims: claims,
+            expires: DateTime.Now.AddMinutes(30),
+            signingCredentials: creds
+        );
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    [Fact]
+    public async Task GetLatestRates_ShouldReturnOkResult_WithValidRequest()
+    {
+        // Arrange
+        var responseContent = new { amount = 1.0, @base = &quot;USD&quot;, date = &quot;2024-01-01&quot;, rates = new { EUR = 0.9 } };
+        _wireMockFixture.Server
+            .Given(Request.Create().WithPath(&quot;/latest&quot;).WithParam(&quot;from&quot;, &quot;USD&quot;).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader(&quot;Content-Type&quot;, &quot;application/json&quot;)
+                .WithBody(JsonSerializer.Serialize(responseContent)));
+
+        // Act
+        var response = await _client.GetAsync(&quot;/rates/latest?baseCurrency=USD&quot;);
+
+        // Assert
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        var result = JsonSerializer.Deserialize&lt;LatestRatesResponse&gt;(content, _jsonSerializerOptions);
+        Assert.NotNull(result);
+        Assert.Equal(&quot;USD&quot;, result.Base);
+        Assert.Contains(&quot;EUR&quot;, result.Rates.Keys);
+    }
+
+    [Fact]
+    public async Task GetLatestRates_ShouldReturnBadRequest_WhenBaseCurrencyIsMissing()
+    {
+        // Act
+        var response = await _client.GetAsync(&quot;/rates/latest?baseCurrency=&quot;);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Convert_ShouldReturnOkResult_WithValidRequest()
+    {
+        // Arrange
+        var responseContent = new { amount = 100.0, @base = &quot;USD&quot;, date = &quot;2024-01-01&quot;, rates = new { EUR = 90.0 } };
+        _wireMockFixture.Server
+            .Given(Request.Create().WithPath(&quot;/latest&quot;).WithParam(&quot;amount&quot;, &quot;100&quot;).WithParam(&quot;from&quot;, &quot;USD&quot;).WithParam(&quot;to&quot;, &quot;EUR&quot;).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader(&quot;Content-Type&quot;, &quot;application/json&quot;)
+                .WithBody(JsonSerializer.Serialize(responseContent)));
+
+        // Act
+        var response = await _client.GetAsync(&quot;/convert?from=USD&amp;to=EUR&amp;amount=100&quot;);
+
+        // Assert
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        var result = JsonSerializer.Deserialize&lt;ConversionResponse&gt;(content, _jsonSerializerOptions);
+        Assert.NotNull(result);
+        Assert.Equal(100, result.Amount);
+        Assert.Equal(&quot;USD&quot;, result.Base);
+        Assert.Equal((decimal)90.0, result.Rates[&quot;EUR&quot;]);
+    }
+
+    [Theory]
+    [InlineData(&quot;?from=USD&amp;to=EUR&amp;amount=0&quot;)]
+    [InlineData(&quot;?from=USD&amp;to=&amp;amount=100&quot;)]
+    [InlineData(&quot;?from=&amp;to=EUR&amp;amount=100&quot;)]
+    public async Task Convert_ShouldReturnBadRequest_WithInvalidParameters(string queryString)
+    {
+        // Act
+        var response = await _client.GetAsync($&quot;/convert{queryString}&quot;);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Convert_ShouldReturnBadRequest_ForExcludedCurrency()
+    {
+        // Act
+        var response = await _client.GetAsync(&quot;/convert?from=USD&amp;to=TRY&amp;amount=100&quot;);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetHistoricalRates_ShouldReturnOkResult_WithValidRequest()
+    {
+        // Arrange
+        var responseContent = new
+        {
+            amount = 1.0,
+            @base = &quot;USD&quot;,
+            start_date = &quot;2023-01-01&quot;,
+            end_date = &quot;2023-01-02&quot;,
+            rates = new Dictionary&lt;string, object&gt;
+            {
+                { &quot;2023-01-01&quot;, new { EUR = 0.91 } },
+                { &quot;2023-01-02&quot;, new { EUR = 0.92 } }
+            }
+        };
+        _wireMockFixture.Server
+            .Given(Request.Create().WithPath(&quot;/2023-01-01..2023-01-02&quot;).WithParam(&quot;from&quot;, &quot;USD&quot;).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader(&quot;Content-Type&quot;, &quot;application/json&quot;)
+                .WithBody(JsonSerializer.Serialize(responseContent)));
+
+        // Act
+        var response = await _client.GetAsync(&quot;/rates/historical?baseCurrency=USD&amp;startDate=2023-01-01&amp;endDate=2023-01-02&amp;page=1&amp;pageSize=10&quot;);
+
+        // Assert
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        var result = JsonSerializer.Deserialize&lt;PaginatedHistoricalRatesResponse&gt;(content, _jsonSerializerOptions);
+        Assert.NotNull(result);
+        Assert.Equal(&quot;USD&quot;, result.Base);
+        Assert.Equal(2, result.Rates.Count);
+    }
+
+    [Fact]
+    public async Task GetHistoricalRates_ShouldReturnBadRequest_WhenStartDateIsAfterEndDate()
+    {
+        // Act
+        var response = await _client.GetAsync(&quot;/rates/historical?baseCurrency=USD&amp;startDate=2023-01-02&amp;endDate=2023-01-01&amp;page=1&amp;pageSize=10&quot;);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetToken_AdminLogin_ShouldReturnOk_WithValidToken()
+    {
+        // Arrange
+        var client = _factory.CreateClient(); // Create a client without the default auth header
+        var userLogin = new { Username = &quot;admin&quot;, Password = &quot;password&quot; };
+        var content = new StringContent(JsonSerializer.Serialize(userLogin), Encoding.UTF8, &quot;application/json&quot;);
+
+        // Act
+        var response = await client.PostAsync(&quot;/token&quot;, content);
+
+        // Assert
+        response.EnsureSuccessStatusCode();
+        var tokenString = (await response.Content.ReadAsStringAsync()).Replace(&quot;\&quot;&quot;, string.Empty);;
+        Assert.False(string.IsNullOrEmpty(tokenString));
+
+        var handler = new JwtSecurityTokenHandler();
+        var token = handler.ReadJwtToken(tokenString);
+
+        Assert.Equal(&quot;admin&quot;, token.Claims.First(c =&gt; c.Type == ClaimTypes.NameIdentifier).Value);
+        Assert.Equal(&quot;Admin&quot;, token.Claims.First(c =&gt; c.Type == ClaimTypes.Role).Value);
+    }
+
+    [Fact]
+    public async Task GetToken_UserLogin_ShouldReturnOk_WithValidToken()
+    {
+        // Arrange
+        var client = _factory.CreateClient(); 
+        var userLogin = new { Username = &quot;user&quot;, Password = &quot;password&quot; };
+        var content = new StringContent(JsonSerializer.Serialize(userLogin), Encoding.UTF8, &quot;application/json&quot;);
+
+        // Act
+        var response = await client.PostAsync(&quot;/token&quot;, content);
+
+        // Assert
+        response.EnsureSuccessStatusCode();
+        var tokenString = (await response.Content.ReadAsStringAsync()).Replace(&quot;\&quot;&quot;, string.Empty);
+        Assert.False(string.IsNullOrEmpty(tokenString));
+
+        var handler = new JwtSecurityTokenHandler();
+        var token = handler.ReadJwtToken(tokenString);
+
+        Assert.Equal(&quot;user&quot;, token.Claims.First(c =&gt; c.Type == ClaimTypes.NameIdentifier).Value);
+        Assert.Equal(&quot;User&quot;, token.Claims.First(c =&gt; c.Type == ClaimTypes.Role).Value);
+    }
+
+    [Theory]
+    [InlineData(&quot;admin&quot;, &quot;wrongpassword&quot;)]
+    [InlineData(&quot;wronguser&quot;, &quot;password&quot;)]
+    [InlineData(&quot;&quot;, &quot;&quot;)]
+    public async Task GetToken_InvalidCredentials_ShouldReturnUnauthorized(string username, string password)
+    {
+        // Arrange
+        var client = _factory.CreateClient(); // Create a client without the default auth header
+        var userLogin = new { Username = username, Password = password };
+        var content = new StringContent(JsonSerializer.Serialize(userLogin), Encoding.UTF8, &quot;application/json&quot;);
+
+        // Act
+        var response = await client.PostAsync(&quot;/token&quot;, content);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+}
+
+public class CustomWebApplicationFactory : WebApplicationFactory&lt;Program&gt;
+{
+    private WireMock.Server.WireMockServer? _wireMockServer;
+
+    public CustomWebApplicationFactory WithWireMockServer(WireMock.Server.WireMockServer server)
+    {
+        _wireMockServer = server;
+        return this;
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.ConfigureAppConfiguration(config =&gt;
+        {
+            config.AddInMemoryCollection(new Dictionary&lt;string, string?&gt;
+            {
+                [&quot;Jwt:Key&quot;] = &quot;MySuperSecretKeyForTestingEnvironment123!&quot;,
+                [&quot;Jwt:Issuer&quot;] = &quot;TestIssuer&quot;,
+                [&quot;Jwt:Audience&quot;] = &quot;TestAudience&quot;,
+                [&quot;FrankfurterApi:BaseUrl&quot;] = _wireMockServer?.Url ?? &quot;https://api.frankfurter.app/&quot;
+            });
+        });
+
+        builder.ConfigureServices(services =&gt;
+        {
+            // Configure HttpClient to use WireMock server
+            services.AddHttpClient(&quot;Frankfurter&quot;, client =&gt;
+            {
+                client.BaseAddress = new Uri(_wireMockServer?.Url ?? &quot;https://api.frankfurter.app/&quot;);
+            });
+        });
+    }
+}
+
+public class DateOnlyJsonConverter : JsonConverter&lt;DateOnly&gt;
+{
+    private const string Format = &quot;yyyy-MM-dd&quot;;
+
+    public override DateOnly Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return DateOnly.ParseExact(reader.GetString()!, Format);
+    }
+
+    public override void Write(Utf8JsonWriter writer, DateOnly value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value.ToString(Format));
+    }
+}
+
+    </pre>
+    <script type="text/javascript">
+      highlightRanges([[27,5,27,115,1],[28,5,28,6,1],[29,9,29,28,1],[30,9,30,44,1],[31,9,31,87,1],[32,9,36,11,1],[38,9,38,42,1],[39,9,39,102,1],[40,5,40,6,1],[43,5,43,6,1],[44,9,44,35,1],[45,9,45,39,1],[46,9,46,113,1],[47,9,47,80,1],[49,9,53,11,1],[55,9,61,11,1],[62,9,62,64,1],[63,5,63,6,1],[67,5,67,6,1],[69,9,69,115,1],[70,9,75,71,1],[78,9,78,81,1],[81,9,81,44,1],[82,9,82,66,1],[83,9,83,103,1],[84,9,84,32,1],[85,9,85,42,1],[86,9,86,51,1],[87,5,87,6,1],[91,5,91,6,1],[93,9,93,78,1],[96,9,96,70,1],[97,5,97,6,1],[101,5,101,6,1],[103,9,103,118,1],[104,9,109,71,1],[112,9,112,86,1],[115,9,115,44,1],[116,9,116,66,1],[117,9,117,102,1],[118,9,118,32,1],[119,9,119,42,1],[120,9,120,42,1],[121,9,121,58,1],[122,5,122,6,1],[129,5,129,6,1],[131,9,131,73,1],[134,9,134,70,1],[135,5,135,6,1],[139,5,139,6,1],[141,9,141,86,1],[144,9,144,70,1],[145,5,145,6,1],[149,5,149,6,1],[151,9,162,11,1],[163,9,168,71,1],[171,9,171,144,1],[174,9,174,44,1],[175,9,175,66,1],[176,9,176,116,1],[177,9,177,32,1],[178,9,178,42,1],[179,9,179,45,1],[180,5,180,6,1],[184,5,184,6,1],[186,9,186,144,1],[189,9,189,70,1],[190,5,190,6,1],[194,5,194,6,1],[196,9,196,46,1],[197,9,197,75,1],[198,9,198,113,1],[201,9,201,66,1],[204,9,204,44,1],[205,9,205,100,1],[205,100,205,101,1],[206,9,206,57,1],[208,9,208,53,1],[209,9,209,55,1],[211,9,211,55,1],[211,55,211,90,1],[211,90,211,99,1],[212,9,212,55,1],[212,55,212,80,1],[212,80,212,89,1],[213,5,213,6,1],[217,5,217,6,1],[219,9,219,46,1],[220,9,220,74,1],[221,9,221,113,1],[224,9,224,66,1],[227,9,227,44,1],[228,9,228,100,1],[229,9,229,57,1],[231,9,231,53,1],[232,9,232,55,1],[234,9,234,54,1],[234,54,234,89,1],[234,89,234,98,1],[235,9,235,54,1],[235,54,235,79,1],[235,79,235,88,1],[236,5,236,6,1],[243,5,243,6,1],[245,9,245,46,1],[246,9,246,74,1],[247,9,247,113,1],[250,9,250,66,1],[253,9,253,72,1],[254,5,254,6,1],[262,5,262,6,1],[263,9,263,34,1],[264,9,264,21,1],[265,5,265,6,1],[268,5,268,6,1],[269,9,270,9,1],[270,9,270,10,1],[270,10,271,13,1],[271,13,277,16,1],[277,16,278,9,1],[278,9,278,10,1],[278,10,278,12,1],[280,9,281,9,1],[281,9,281,10,1],[281,10,283,13,1],[283,13,284,13,1],[284,13,284,14,1],[284,14,285,17,1],[285,17,285,102,1],[285,102,286,13,1],[286,13,286,14,1],[286,14,286,16,1],[286,16,287,9,1],[287,9,287,10,1],[287,10,287,12,1],[288,5,288,6,1],[296,5,296,6,1],[297,9,297,65,1],[298,5,298,6,1],[301,5,301,6,0],[302,9,302,57,0],[303,5,303,6,0]]);
+    </script>
+  </body>
+</html>
