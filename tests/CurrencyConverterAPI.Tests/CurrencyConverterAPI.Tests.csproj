@@ -30,7 +30,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\..\CurrencyConverterAPI\CurrencyConverterAPI.csproj" />
+      <ProjectReference Include="..\..\src\CurrencyConverterAPI\CurrencyConverterAPI.csproj" />
     </ItemGroup>
 
 </Project>

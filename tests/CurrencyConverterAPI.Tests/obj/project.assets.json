@@ -12153,8 +12153,8 @@
     },
     "CurrencyConverterAPI/1.0.0": {
       "type": "project",
-      "path": "../../CurrencyConverterAPI/CurrencyConverterAPI.csproj",
-      "msbuildProject": "../../CurrencyConverterAPI/CurrencyConverterAPI.csproj"
+      "path": "../../src/CurrencyConverterAPI/CurrencyConverterAPI.csproj",
+      "msbuildProject": "../../src/CurrencyConverterAPI/CurrencyConverterAPI.csproj"
     }
   },
   "projectFileDependencyGroups": {
@@ -12198,8 +12198,8 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "projectReferences": {
-            "D:\\Programming\\open source\\CurrencyConverterAPI\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj": {
-              "projectPath": "D:\\Programming\\open source\\CurrencyConverterAPI\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj"
+            "D:\\Programming\\open source\\CurrencyConverterAPI\\src\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj": {
+              "projectPath": "D:\\Programming\\open source\\CurrencyConverterAPI\\src\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj"
             }
           }
         }
@@ -12208,11 +12208,6 @@
         "warnAsError": [
           "NU1605"
         ]
-      },
-      "restoreAuditProperties": {
-        "enableAudit": "true",
-        "auditLevel": "low",
-        "auditMode": "direct"
       }
     },
     "frameworks": {

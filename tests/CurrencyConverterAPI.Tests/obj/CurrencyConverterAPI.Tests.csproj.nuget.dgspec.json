@@ -4,14 +4,14 @@
     "D:\\Programming\\open source\\CurrencyConverterAPI\\tests\\CurrencyConverterAPI.Tests\\CurrencyConverterAPI.Tests.csproj": {}
   },
   "projects": {
-    "D:\\Programming\\open source\\CurrencyConverterAPI\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj": {
+    "D:\\Programming\\open source\\CurrencyConverterAPI\\src\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\Programming\\open source\\CurrencyConverterAPI\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj",
+        "projectUniqueName": "D:\\Programming\\open source\\CurrencyConverterAPI\\src\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj",
         "projectName": "CurrencyConverterAPI",
-        "projectPath": "D:\\Programming\\open source\\CurrencyConverterAPI\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj",
+        "projectPath": "D:\\Programming\\open source\\CurrencyConverterAPI\\src\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj",
         "packagesPath": "C:\\Users\\danie\\.nuget\\packages\\",
-        "outputPath": "D:\\Programming\\open source\\CurrencyConverterAPI\\CurrencyConverterAPI\\obj\\",
+        "outputPath": "D:\\Programming\\open source\\CurrencyConverterAPI\\src\\CurrencyConverterAPI\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\danie\\AppData\\Roaming\\NuGet\\NuGet.Config",
@@ -35,11 +35,6 @@
           "warnAsError": [
             "NU1605"
           ]
-        },
-        "restoreAuditProperties": {
-          "enableAudit": "true",
-          "auditLevel": "low",
-          "auditMode": "direct"
         }
       },
       "frameworks": {
@@ -135,8 +130,8 @@
           "net8.0": {
             "targetAlias": "net8.0",
             "projectReferences": {
-              "D:\\Programming\\open source\\CurrencyConverterAPI\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj": {
-                "projectPath": "D:\\Programming\\open source\\CurrencyConverterAPI\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj"
+              "D:\\Programming\\open source\\CurrencyConverterAPI\\src\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj": {
+                "projectPath": "D:\\Programming\\open source\\CurrencyConverterAPI\\src\\CurrencyConverterAPI\\CurrencyConverterAPI.csproj"
               }
             }
           }
@@ -145,11 +140,6 @@
           "warnAsError": [
             "NU1605"
           ]
-        },
-        "restoreAuditProperties": {
-          "enableAudit": "true",
-          "auditLevel": "low",
-          "auditMode": "direct"
         }
       },
       "frameworks": {
